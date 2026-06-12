@@ -1,0 +1,15 @@
+{
+  "name": "claude-code",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": " node --env-file=.env  ./src/main.js -p",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.0.12",
+    "openai": "^6.42.0"
+  }
+}
