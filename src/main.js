@@ -1,150 +1,145 @@
+#!/usr/bin/env node
 import OpenAI from "openai";
-import fs from "fs";
-import { execSync } from "child_process";
+import "dotenv/config";
+
+import { input } from "@inquirer/prompts";
+import chalk from "chalk";
+
+import tools from "../agent/tools.js";
+import { handleToolCalls } from "../agent/toolHandlers.js";
+import {
+  printBanner,
+  printToolCall,
+  print429Warning,
+  printAnswer,
+  NeonSpinner,
+  neon,
+  sleep,
+} from "../ui.js";
+
+
+async function callWithFallback(clients, model, messages, tools) {
+  for (let attempt = 0; attempt < clients.length; attempt++) {
+    try {
+      return await clients[attempt].chat.completions.create({ model, messages, tools });
+    } catch (err) {
+      const is429 =
+        err?.status === 429 ||
+        err?.response?.status === 429 ||
+        String(err?.message).includes("429");
+
+      if (is429 && attempt < clients.length - 1) {
+        const retryAfter = parseInt(
+          err?.response?.headers?.get?.("retry-after") ?? "3",
+          10
+        );
+        await print429Warning(retryAfter * 1000);
+        continue;
+      }
+
+      throw err;
+    }
+  }
+}
 
 
 async function main() {
-  const [, , flag, prompt] = process.argv;
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  const baseURL =
-    process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1";
+  let prompt = process.argv.slice(2).join(" ");
 
-  if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY is not set");
+  if (!prompt) {
+    printBanner();
+    await sleep(3500);
+
+    prompt = await input({
+      message: `${neon.cyan("◈")}  ${neon.white("What should I do?")}`,
+    });
   }
-  if (flag !== "-p" || !prompt) {
-    throw new Error("error: -p flag is required");
-  }
 
-  const client = new OpenAI({
-    apiKey: apiKey,
-    baseURL: baseURL,
-  });
+  console.log();
 
-  const tools =  [{
-          "type": "function",
-          "function": {
-              "name": "Read",
-              "description": "Reads and return the contents of a file",
-              "parameters": {
-                "type": "object",
-                "properties": {
-                  "file_path": {
-                    "type": "string",
-                    "description": "The path to the file to read"
-                  }
-                },
-              "required": ["file_path"]
-            }
-          }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "Write",
-      "description": "Write content to a file",
-      "parameters": {
-        "type": "object",
-        "required": ["file_path", "content"],
-        "properties": {
-          "file_path": {
-            "type": "string",
-            "description": "The path of the file to write to"
-          },
-          "content": {
-            "type": "string",
-            "description": "The content to write to the file"
-          }
-        }
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "Bash",
-      "description": "Execute a shell command",
-      "parameters": {
-        "type": "object",
-        "required": ["command"],
-        "properties": {
-          "command": {
-            "type": "string",
-            "description": "The command to execute"
-          }
-        }
-      }
-    }
-  }
-];
+  const baseURL = process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1";
+  const apiKey1 = process.env.OPENROUTER_API_KEY;
+  const apiKey2 = process.env.OPENROUTER_API_KEY_2;
 
-  let messages = [
-    { role: "user", content: prompt }
-  ];
-  
-  while (true) {
-    
-    const response = await client.chat.completions.create({
-      model: "nex-agi/nex-n2-pro:free",
-      messages,
-      tools,
-      }
+  if (!apiKey1) throw new Error("OPENROUTER_API_KEY is not set");
+
+  const clients = [new OpenAI({ apiKey: apiKey1, baseURL })];
+
+  if (apiKey2) {
+    clients.push(new OpenAI({ apiKey: apiKey2, baseURL }));
+  } else {
+    console.log(
+      `  ${neon.dim("ℹ")}  ${neon.dim("OPENROUTER_API_KEY_2 not set — no backup key available")}\n`
     );
-    
-    const message = response.choices[0].message;
+  }
 
-    messages.push(message);
-    
-    const toolCalls = message.tool_calls;
+  const messages = [{ role: "user", content: prompt }];
+  const spinner = new NeonSpinner();
+  let step = 0;
 
-    
-    if (!toolCalls || toolCalls.length === 0) {
-      console.log(message.content);
+  while (true) {
+    step++;
+    spinner.start(`Thinking  ${neon.dim("step " + step)}`);
+
+    let response;
+    try {
+      response = await callWithFallback(clients, "nex-agi/nex-n2-pro:free", messages, tools);
+    } catch (err) {
+      spinner.fail(`API error: ${err.message}`);
+      process.exit(1);
+    }
+
+    if (!response.choices?.length) {
+      spinner.fail("No choices in response");
       break;
     }
 
-    for (const toolCall of toolCalls) {
+    const message = response.choices[0].message;
+    const toolCalls = message.tool_calls;
 
-      if (toolCall) {
-        const name = toolCall.function.name;
-        const args = JSON.parse(toolCall.function.arguments);
+    messages.push(message);
 
-        let result;
-
-        if (name === "Bash") {
-          try {
-            result = execSync(args.command, {encoding: "utf-8",stdio: "pipe"});
-          } catch (err) {
-            
-            result = err.stderr?.toString() || err.message;
-          }
-        }
-
-        
-        if (name === "Read") {
-          result = fs.readFileSync(args.file_path, "utf-8");
-        }
-
-        if (name === "Write") {
-          const { file_path, content } = args;
-
-          fs.writeFileSync(file_path, content, "utf-8");
-
-          result = "file written successfully";
-        }
-
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: result ?? "",
-        });
-      }
+    if (!toolCalls?.length) {
+      spinner.stop();
+      printAnswer(message.content ?? "(no content)");
+      break;
     }
-    if (!response.choices || response.choices.length === 0) {
-      throw new Error("no choices in response");
+
+    spinner.stop();
+
+    for (const tc of toolCalls) {
+      if (!tc) continue;
+      const args = JSON.parse(tc.function.arguments ?? "{}");
+      printToolCall(tc.function.name, args);
     }
+
+    spinner.start("Running tools");
+
+    const wrappedToolCalls = toolCalls.map((tc) => ({
+      ...tc,
+      _onStart: () => spinner.tool(tc.function.name),
+    }));
+
+    await handleToolCallsWithHooks(wrappedToolCalls, messages, spinner);
+
+    spinner.succeed(
+      `${toolCalls.length} tool${toolCalls.length > 1 ? "s" : ""} completed`
+    );
   }
-
 }
 
-main();
+
+
+async function handleToolCallsWithHooks(toolCalls, messages, spinner) {
+  for (const toolCall of toolCalls) {
+    if (!toolCall) continue;
+    toolCall._onStart?.();
+    await handleToolCalls([toolCall], messages);
+  }
+}
+
+
+main().catch((err) => {
+  console.error(chalk.red("\n  ✖  Fatal: ") + err.message);
+  process.exit(1);
+});
