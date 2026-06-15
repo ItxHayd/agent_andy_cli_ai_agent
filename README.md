@@ -2,6 +2,11 @@
 
 agent-andy is a Node.js command-line AI agent that accepts a prompt, calls an OpenRouter-hosted model, and executes tool calls when the model requests them. It includes a small set of built-in tools for file-system work, shell execution, web access, code execution, memory, task management, and utility helpers.
 
+**Try It Out At:**
+```bash
+npm install agent-andy
+```
+
 ## Features
 
 - CLI-first prompt interface with optional interactive prompt mode.
