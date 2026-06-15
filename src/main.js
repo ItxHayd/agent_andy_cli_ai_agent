@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+
+
 import OpenAI from "openai";
 import "dotenv/config";
 
