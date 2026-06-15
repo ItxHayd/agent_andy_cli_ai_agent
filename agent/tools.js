@@ -184,37 +184,22 @@ const tools = [
   {
     type: "function",
     function: {
-      name: "HttpRequest",
-      description:
-        "Make an HTTP/HTTPS request and return the status code, headers, and response body.",
+      name: "GenerateImage",
+      description: "Generates an image from a text prompt using the image worker and saves it to disk.",
       parameters: {
         type: "object",
-        required: ["url"],
         properties: {
-          url: {
+          imagePrompt: {
             type: "string",
-            description: "The full URL to request.",
+            description: "A detailed text description of the image to generate.",
           },
-          method: {
-            type: "string",
-            enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
-            description: "HTTP method. Defaults to GET.",
-          },
-          headers: {
-            type: "object",
-            description: "Key-value map of request headers.",
-            additionalProperties: { type: "string" },
-          },
-          body: {
+          savePath: {
             type: "string",
             description:
-              "Request body (for POST / PUT / PATCH). JSON-stringify objects before passing.",
-          },
-          timeout_ms: {
-            type: "number",
-            description: "Request timeout in milliseconds. Defaults to 15000.",
+              "Only use if the user explicitly specifies a folder path to save to. Do NOT infer or guess a path. Defaults to the system Downloads folder.",
           },
         },
+        required: ["imagePrompt"],
       },
     },
   },

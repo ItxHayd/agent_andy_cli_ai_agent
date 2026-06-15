@@ -1,6 +1,9 @@
-import { execSync } from "child_process";
+import os from "os";
 import fs from "fs";
 import path from "path";
+
+import { execSync } from "child_process";
+import "dotenv/config";
 
 // In-memory store for RememberFact / RecallFact / ForgetFact
 const agentMemory = new Map();
@@ -11,6 +14,8 @@ const agentMemory = new Map();
  * @param {object} args  - Parsed arguments from the model
  * @returns {Promise<string>} - Result to send back as the tool message
  */
+
+
 async function executeTool(name, args) {
  
 
@@ -106,6 +111,24 @@ async function executeTool(name, args) {
       clearTimeout(timer);
       return `ERROR: ${err.message}`;
     }
+  }
+
+  if (name === "GenerateImage") {
+    const response = await fetch(process.env.WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer 12345678" }, // i know it's here but your dont have WORKER_URL hahahhahhahahahha
+      body: JSON.stringify({ prompt: args.imagePrompt }),
+    });
+
+    if (!response.ok) throw new Error(`Worker failed (${response.status}): ${await response.text()}`);
+
+    const savePath = args.savePath
+      ? path.resolve(args.savePath)
+      : path.join(os.homedir(), "Downloads", `generated-${Date.now()}.png`);
+
+    fs.writeFileSync(savePath, Buffer.from(await response.arrayBuffer()));
+
+    return JSON.stringify({ success: true, savedTo: savePath });
   }
 
   if (name === "WebSearch") {
@@ -243,7 +266,6 @@ async function executeTool(name, args) {
   // ─────────────────────────────────────────────
 
   if (name === "CreateSubtask") {
-    // Stub — wire up to your task queue / planner in production
     const id = `subtask_${Date.now()}`;
     console.log(`[Subtask created] id=${id} priority=${args.priority ?? "medium"}: ${args.description}`);
     return JSON.stringify({ subtask_id: id, status: "queued" });
